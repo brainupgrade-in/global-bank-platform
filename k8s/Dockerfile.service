@@ -1,0 +1,33 @@
+# One Dockerfile for all five Java services — they package identically, so five
+# copies in five app repos would be five things to keep in step. Build it with
+# the service repo as the context:
+#
+#   docker build -f k8s/Dockerfile.service -t brainupgrade/global-bank-account:2.0.0 ../global-bank-account
+#
+# Kept here rather than in the app repos: how the app is shipped to a cluster is
+# a deployment concern, and the repos own application behaviour.
+#
+# Running this locally as UID 1000 may fail with
+#   exec /opt/java/openjdk/bin/java: resource temporarily unavailable
+# That is not the image. RLIMIT_NPROC is enforced per real UID across the whole
+# host, so a daemon-wide nproc limit (see /etc/docker/daemon.json) is shared with
+# your desktop session, which is usually already past it. Add --ulimit nproc=-1
+# to run it locally. On a cluster node the container UID does not collide with a
+# logged-in user, so this does not arise.
+
+FROM maven:3.9-eclipse-temurin-25 AS build
+WORKDIR /src
+# .mvn/wrapper was never committed to these repos, so ./mvnw cannot bootstrap.
+COPY pom.xml .
+RUN mvn -B -q dependency:go-offline
+COPY src ./src
+RUN mvn -B -q clean package -DskipTests
+
+FROM eclipse-temurin:25-jre
+# The base image already provides a non-root user at UID 1000 (ubuntu), which is
+# what the Deployment's runAsUser expects. Creating another at the same UID
+# fails: useradd exits 4 on a UID that is already taken.
+WORKDIR /app
+COPY --from=build --chown=1000:1000 /src/target/*.jar /app/app.jar
+USER 1000
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]

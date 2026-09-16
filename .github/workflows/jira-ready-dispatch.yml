@@ -1,0 +1,122 @@
+name: Route Jira issue to its service repo and start the agent
+
+# The Jira Automation rule on GBANK sends only the issue key here. Everything
+# else is read from Jira, so quotes and newlines in a description never have to
+# survive being pasted into the rule's JSON body.
+on:
+    repository_dispatch:
+        types: [jira-ready-for-development]
+    workflow_dispatch:
+        inputs:
+            jira_key:
+                description: "Jira issue key to route, e.g. GBANK-3"
+                required: true
+
+permissions:
+    contents: read
+
+jobs:
+    route:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Route the Jira issue into the repo its component names
+              env:
+                  # Cross-repo issue creation: the default GITHUB_TOKEN cannot write
+                  # to another repository, so this uses the fleet PAT.
+                  GH_TOKEN: ${{ secrets.GH_AW_FLEET_TOKEN }}
+                  JIRA_BASE_URL: ${{ vars.ATLASSIAN_SITE }}
+                  JIRA_USER_EMAIL: ${{ secrets.ATLASSIAN_USER_EMAIL }}
+                  JIRA_API_TOKEN: ${{ secrets.ATLASSIAN_API_TOKEN }}
+                  JIRA_KEY: ${{ github.event.client_payload.jira_key || inputs.jira_key }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ ! "$JIRA_KEY" =~ ^[A-Z][A-Z0-9]+-[0-9]+$ ]]; then
+                    echo "::error::jira_key missing or malformed: '$JIRA_KEY'"
+                    exit 1
+                  fi
+                  jira_url="$JIRA_BASE_URL/browse/$JIRA_KEY"
+
+                  jira_get() {
+                    curl --fail-with-body --silent --show-error \
+                      --user "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+                      --header 'Accept: application/json' "$@"
+                  }
+
+                  issue=$(jira_get "$JIRA_BASE_URL/rest/api/3/issue/$JIRA_KEY?fields=summary,description,components,issuetype")
+                  summary=$(jq -er '.fields.summary' <<< "$issue")
+
+                  # Flatten Atlassian Document Format: one block per paragraph, "- " per
+                  # bullet, numbered lines for ordered lists, so list items do not run together.
+                  description=$(jq -r '
+                    def inline: [.. | objects | if .type == "text" then .text elif .type == "hardBreak" then "\n" else empty end] | join("");
+                    def block:
+                      if .type == "bulletList" then [.content[]? | "- " + inline] | join("\n")
+                      elif .type == "orderedList" then [.content[]? | inline] | to_entries | map("\(.key + 1). \(.value)") | join("\n")
+                      else inline end;
+                    [.fields.description.content[]? | block] | join("\n\n")' <<< "$issue")
+
+                  # The component IS the routing key. No component means no home repo.
+                  component=$(jq -r '.fields.components[0].name // empty' <<< "$issue")
+                  if [[ -z "$component" ]]; then
+                    echo "::error::$JIRA_KEY has no component, so there is no repository to send it to. Set one on the Jira issue."
+                    exit 1
+                  fi
+
+                  case "$component" in
+                    account|authentication|customer|transaction|rules|frontend|platform) ;;
+                    *) echo "::error::component '$component' does not map to a fleet repository"; exit 1 ;;
+                  esac
+                  target="brainupgrade-in/global-bank-$component"
+                  echo "$JIRA_KEY [$component] -> $target"
+
+                  # Keep only issues this workflow creates: title starts with "[<key>] ".
+                  existing=$(gh issue list --repo "$target" --state all --search "${JIRA_KEY} in:title" \
+                    --limit 100 --json number,title \
+                    | jq -r --arg p "[$JIRA_KEY] " 'map(select(.title | startswith($p))) | .[0].number // empty')
+                  if [[ -n "$existing" ]]; then
+                    echo "$target#$existing already exists for $JIRA_KEY; not starting a second implementation."
+                    exit 0
+                  fi
+
+                  body=$(printf '%s\n\nJira issue: %s\n\nRouted from Jira by component `%s`. The Copilot coding agent will implement this and open a draft pull request for human review.\n\nCI must be green before this is reviewable: the `build` workflow is the only automated signal this service has.' \
+                    "${description:-No description provided.}" "$jira_url" "$component")
+
+                  issue_url=$(gh issue create --repo "$target" \
+                    --title "[$JIRA_KEY] $summary" --body "$body")
+                  echo "created $issue_url"
+                  issue_number="${issue_url##*/}"
+
+                  # Hand it to the Copilot coding agent.
+                  node=$(gh api graphql -f owner=brainupgrade-in -f name="global-bank-$component" -F num="$issue_number" -f query='
+                    query($owner:String!,$name:String!,$num:Int!){
+                      repository(owner:$owner,name:$name){
+                        issue(number:$num){ id }
+                        suggestedActors(capabilities:[CAN_BE_ASSIGNED],first:20){
+                          nodes{ login ... on Bot { id } ... on User { id } }
+                        }
+                      }
+                    }')
+                  issue_id=$(jq -er '.data.repository.issue.id' <<< "$node")
+                  bot_id=$(jq -r '.data.repository.suggestedActors.nodes[] | select(.login=="copilot-swe-agent") | .id' <<< "$node")
+
+                  if [[ -n "$bot_id" ]]; then
+                    gh api graphql -f assignableId="$issue_id" -f actorId="$bot_id" -f query='
+                      mutation($assignableId:ID!,$actorId:ID!){
+                        replaceActorsForAssignable(input:{assignableId:$assignableId,actorIds:[$actorId]}){
+                          assignable{ ... on Issue { number } }
+                        }
+                      }' && echo "assigned copilot-swe-agent"
+                  else
+                    echo "::warning::copilot-swe-agent is not assignable on $target; issue created but unassigned."
+                  fi
+
+                  # Move Jira to In Progress. Never to Done — only a merged PR does that.
+                  tr_id=$(jira_get "$JIRA_BASE_URL/rest/api/3/issue/$JIRA_KEY/transitions" \
+                    | jq -er '.transitions[] | select(.to.name == "In Progress") | .id' | head -n 1)
+                  curl --fail-with-body --silent --show-error \
+                    --user "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+                    --header 'Content-Type: application/json' \
+                    --data "$(jq -n --arg id "$tr_id" '{transition:{id:$id}}')" \
+                    "$JIRA_BASE_URL/rest/api/3/issue/$JIRA_KEY/transitions"
+                  echo "$JIRA_KEY -> In Progress"

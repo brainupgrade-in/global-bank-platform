@@ -1,0 +1,16 @@
+# Inter-service addresses. The services read these as env vars and default to
+# localhost when unset, which is what makes `scripts/local.sh` work with no
+# Kubernetes at all. In the cluster they resolve through Service DNS.
+#
+# Format is host:port/context-path with no scheme — Feign prepends http://.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: service-urls
+  namespace: global-bank
+data:
+  AUTH_SERVICE_URL: "auth:8084/auth"
+  CUSTOMER_SERVICE_URL: "customer:8085/customer"
+  ACCOUNT_SERVICE_URL: "account:8086/account"
+  TRANSACTION_SERVICE_URL: "transaction:8087/transaction"
+  RULE_SERVICE_URL: "rules:8090/rules"

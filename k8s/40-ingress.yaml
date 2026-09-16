@@ -1,0 +1,32 @@
+# The cluster has no public IP. Traffic arrives through an edge proxy that
+# terminates TLS and forwards plain HTTP to ingress-nginx in-cluster, which
+# routes here by Host header. Hence no tls: block on this Ingress.
+#
+# The hostname is not arbitrary: the parent zone applies a site-wide redirect
+# that only certain host prefixes are excluded from. Changing `host` below
+# without checking that exclusion will silently 301 the demo away. The DNS
+# record and the exclusion are managed outside this repository.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: global-bank
+  namespace: global-bank
+  labels:
+    app.kubernetes.io/part-of: global-bank
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+spec:
+  ingressClassName: nginx
+  rules:
+    # Rendered by scripts/deploy-k8s.sh from $APP_HOST. The real hostname is not
+    # committed: this repo is public and the URL is given to participants directly.
+    - host: APP_HOST_PLACEHOLDER
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

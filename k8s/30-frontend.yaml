@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: global-bank
+  labels: { app: frontend, app.kubernetes.io/part-of: global-bank }
+spec:
+  # Stateless nginx, so unlike the Java services this can scale. Two replicas so
+  # a single pod restart does not take the demo down mid-session.
+  replicas: 2
+  selector:
+    matchLabels: { app: frontend }
+  template:
+    metadata:
+      labels: { app: frontend, app.kubernetes.io/part-of: global-bank }
+    spec:
+      containers:
+        - name: frontend
+          image: brainupgrade/global-bank-frontend:3.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 80 }
+          # nginx proxies /auth, /customer, /account, /transaction and /rules to
+          # the Services above, so the browser only ever talks to this origin.
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          # Measured at 3Mi / 9m serving the same 30-user load.
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: global-bank
+  labels: { app: frontend }
+spec:
+  selector: { app: frontend }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# Keeps one frontend serving while the node is drained or a pod is evicted.
+# Deliberately not applied to the Java services: with replicas: 1 a PDB would
+# block node maintenance outright rather than protect anything.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend
+  namespace: global-bank
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: frontend }

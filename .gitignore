@@ -1,0 +1,17 @@
+# Credentials — never commit. This repo is public.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# gh-aw local run artifacts
+/tmp/gh-aw/
+.gh-aw/
+
+# Editor / OS
+.DS_Store
+*.swp
+
+# local run state (pids, logs)
+.run/

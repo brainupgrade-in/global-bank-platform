@@ -1,0 +1,56 @@
+name: Report pull request status to Jira
+
+on:
+    pull_request:
+        types: [opened, closed]
+
+permissions:
+    contents: read
+
+jobs:
+    report-status:
+        if: ${{ vars.JIRA_SYNC_ENABLED == 'true' }}
+        runs-on: ubuntu-latest
+        steps:
+            - name: Report pull request event
+              env:
+                  JIRA_BASE_URL: ${{ vars.ATLASSIAN_SITE }}
+                  JIRA_USER_EMAIL: ${{ secrets.ATLASSIAN_USER_EMAIL }}
+                  JIRA_API_TOKEN: ${{ secrets.ATLASSIAN_API_TOKEN }}
+                  PR_TITLE: ${{ github.event.pull_request.title }}
+                  PR_URL: ${{ github.event.pull_request.html_url }}
+                  PR_ACTION: ${{ github.event.action }}
+                  PR_MERGED: ${{ github.event.pull_request.merged }}
+              run: |
+                  set -euo pipefail
+
+                  # The Jira key comes from the PR title, which jira-ready-dispatch puts
+                  # there via the issue title. No key means this PR is not Jira-tracked.
+                  jira_key=$(printf '%s' "$PR_TITLE" | grep -Eo '[A-Z][A-Z0-9]+-[0-9]+' | head -n 1 || true)
+                  if [[ -z "$jira_key" ]]; then
+                    echo "No Jira key in PR title; nothing to report."
+                    exit 0
+                  fi
+
+                  if [[ "$PR_ACTION" == "closed" && "$PR_MERGED" == "true" ]]; then
+                    # Done is reached only here, by a merged PR. No agent may set it.
+                    transitions=$(curl --fail-with-body --silent --show-error \
+                      --user "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+                      --header 'Accept: application/json' \
+                      "$JIRA_BASE_URL/rest/api/3/issue/$jira_key/transitions")
+                    done_id=$(jq -er '.transitions[] | select(.to.name == "Done") | .id' <<< "$transitions" | head -n 1)
+                    curl --fail-with-body --silent --show-error \
+                      --user "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+                      --header 'Content-Type: application/json' \
+                      --data "$(jq -n --arg id "$done_id" '{transition:{id:$id}}')" \
+                      "$JIRA_BASE_URL/rest/api/3/issue/$jira_key/transitions"
+                    message="Pull request merged: $PR_URL"
+                  else
+                    message="Pull request opened: $PR_URL"
+                  fi
+
+                  curl --fail-with-body --silent --show-error \
+                    --user "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+                    --header 'Content-Type: application/json' \
+                    --data "$(jq -n --arg m "$message" '{body:{type:"doc",version:1,content:[{type:"paragraph",content:[{type:"text",text:$m}]}]}}')" \
+                    "$JIRA_BASE_URL/rest/api/3/issue/$jira_key/comment"

@@ -1,0 +1,129 @@
+{
+  "app": "Global Bank",
+  "owner": "brainupgrade-in",
+  "default_branch_note": "All services are on main; global-bank-frontend's active branch is k8s.",
+  "services": [
+    {
+      "name": "global-bank-account",
+      "repo": "brainupgrade-in/global-bank-account",
+      "branch": "main",
+      "kind": "java-spring-boot",
+      "artifact": "in.brainupgrade:account",
+      "port": 8086,
+      "context_path": "/account",
+      "spring_boot": "3.5.3",
+      "spring_cloud": "2025.0.0",
+      "java": "25",
+      "build": "mvn clean package   # .mvn/wrapper was never committed, so ./mvnw does not work",
+      "depends_on": [
+        "global-bank-customer",
+        "global-bank-authentication",
+        "global-bank-transaction"
+      ],
+      "test_sources": 0,
+      "actuator": true
+    },
+    {
+      "name": "global-bank-authentication",
+      "repo": "brainupgrade-in/global-bank-authentication",
+      "branch": "main",
+      "kind": "java-spring-boot",
+      "artifact": "in.brainupgrade:authentication",
+      "port": 8084,
+      "context_path": "/auth",
+      "spring_boot": "3.5.3",
+      "spring_cloud": null,
+      "java": "25",
+      "build": "mvn clean package   # .mvn/wrapper was never committed, so ./mvnw does not work",
+      "depends_on": [],
+      "test_sources": 0,
+      "actuator": true
+    },
+    {
+      "name": "global-bank-customer",
+      "repo": "brainupgrade-in/global-bank-customer",
+      "branch": "main",
+      "kind": "java-spring-boot",
+      "artifact": "in.brainupgrade:customer",
+      "port": 8085,
+      "context_path": "/customer",
+      "spring_boot": "3.5.3",
+      "spring_cloud": "2025.0.0",
+      "java": "25",
+      "build": "mvn clean package   # .mvn/wrapper was never committed, so ./mvnw does not work",
+      "depends_on": [
+        "global-bank-authentication",
+        "global-bank-account"
+      ],
+      "test_sources": 0,
+      "actuator": true
+    },
+    {
+      "name": "global-bank-transaction",
+      "repo": "brainupgrade-in/global-bank-transaction",
+      "branch": "main",
+      "kind": "java-spring-boot",
+      "artifact": "in.brainupgrade:transaction",
+      "port": 8087,
+      "context_path": "/transaction",
+      "spring_boot": "3.5.3",
+      "spring_cloud": "2025.0.0",
+      "java": "25",
+      "build": "mvn clean package   # .mvn/wrapper was never committed, so ./mvnw does not work",
+      "depends_on": [
+        "global-bank-account",
+        "global-bank-rules"
+      ],
+      "test_sources": 0,
+      "actuator": true
+    },
+    {
+      "name": "global-bank-rules",
+      "repo": "brainupgrade-in/global-bank-rules",
+      "branch": "main",
+      "kind": "java-spring-boot",
+      "artifact": "in.brainupgrade:rules",
+      "port": 8090,
+      "context_path": "/rules",
+      "spring_boot": "3.5.3",
+      "spring_cloud": "2025.0.0",
+      "java": "25",
+      "build": "mvn clean package   # .mvn/wrapper was never committed, so ./mvnw does not work",
+      "depends_on": [
+        "global-bank-authentication",
+        "global-bank-account"
+      ],
+      "test_sources": 0,
+      "actuator": true
+    },
+    {
+      "name": "global-bank-frontend",
+      "repo": "brainupgrade-in/global-bank-frontend",
+      "branch": "k8s",
+      "kind": "angular",
+      "artifact": "global-bank-frontend@1.0.0",
+      "port": 4200,
+      "context_path": "/",
+      "angular": "9.1.13",
+      "typescript": "3.8.3",
+      "build": "npm ci && npm run build",
+      "depends_on": [
+        "global-bank-authentication",
+        "global-bank-customer",
+        "global-bank-account",
+        "global-bank-transaction",
+        "global-bank-rules"
+      ],
+      "test_sources": 1
+    }
+  ],
+  "known_debt": [
+    "Zero test sources in all five Java services; only one spec file in the frontend. The build workflow is the only automated signal.",
+    ".mvn/wrapper/ was never committed to any Java repo, so ./mvnw cannot bootstrap. Use mvn.",
+    "global-bank-frontend is still Angular 9.1.13 and has not been modernised.",
+    "The five Java services no longer have Dockerfiles or k8s manifests; only the frontend does.",
+    "Inter-service URLs are now env vars (CUSTOMER_SERVICE_URL etc.) defaulting to localhost; the Deployment must supply Service DNS names.",
+    "authentication's jwt.secret now comes from JWT_SECRET and must be provided by a Kubernetes Secret in any real deployment.",
+    "Lombok was removed fleet-wide: 1.18.38 is the newest release and does not support JDK 25. It can return once a supporting version ships."
+  ]
+}

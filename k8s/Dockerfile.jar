@@ -1,0 +1,24 @@
+# Package an already-built jar into a runtime image.
+#
+# Why this exists alongside Dockerfile.service: a jar is bytecode and is
+# architecture-independent, so there is no reason to run Maven once per target
+# platform. Building arm64 by emulating an entire Maven build on an x86 host
+# takes hours; compiling the jar natively and copying it into an arm64 JRE base
+# takes seconds, and produces the same artifact.
+#
+#   mvn -q clean package -DskipTests            # once, natively
+#   docker buildx build -f k8s/Dockerfile.jar \
+#     --platform linux/amd64,linux/arm64 --push \
+#     -t brainupgrade/global-bank-account:3.0.0 ../global-bank-account
+#
+# Dockerfile.service remains the hermetic build for CI, where reproducibility
+# matters more than wall-clock time.
+
+FROM eclipse-temurin:25-jre
+# The base image already provides a non-root user at UID 1000, which is what the
+# Deployment's runAsUser expects. Creating another at that UID fails (useradd 4).
+WORKDIR /app
+COPY target/*.jar /app/app.jar
+RUN chown -R 1000:1000 /app
+USER 1000
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]

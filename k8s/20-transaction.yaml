@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction
+  namespace: global-bank
+  labels: { app: transaction, app.kubernetes.io/part-of: global-bank }
+spec:
+  # MUST stay at 1. The datasource is jdbc:h2:mem — an in-memory database private
+  # to each JVM. A second replica gets its own empty database, so a deposit made
+  # on one pod is invisible on the other and balances diverge per request. This
+  # cannot be scaled horizontally without moving to a shared database.
+  replicas: 1
+  selector:
+    matchLabels: { app: transaction }
+  template:
+    metadata:
+      labels: { app: transaction, app.kubernetes.io/part-of: global-bank }
+    spec:
+      containers:
+        - name: transaction
+          image: brainupgrade/global-bank-transaction:3.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8087 }
+          envFrom:
+            - configMapRef: { name: service-urls }
+          # The services expose actuator under their context path, which is why
+          # these are not the usual /actuator/health.
+          startupProbe:
+            httpGet: { path: /transaction/actuator/health/readiness, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /transaction/actuator/health/liveness, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /transaction/actuator/health/readiness, port: http }
+            periodSeconds: 10
+          # Measured under 60 concurrent users, 1200 requests: 346Mi peak memory,
+          # 112m peak CPU, zero OOMKills, all responses 200.
+          #
+          # The memory limit is ~2x observed peak because an OOMKill here is not
+          # just a restart — the datasource is jdbc:h2:mem, so the database dies
+          # with the process and every participant's deposits vanish.
+          #
+          # The CPU limit is 2000m, well above the 112m serving peak, because at
+          # 1000m the JVM lost 9.1s to throttling during startup while request
+          # load cost only 38ms across 300 requests. Limits do not reserve node
+          # capacity, so the headroom is free; it buys faster startup and still
+          # bounds a runaway process on a node shared with the agenticai cohort.
+          resources:
+            requests: { cpu: 150m, memory: 384Mi }
+            limits:   { cpu: 2000m, memory: 768Mi }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction
+  namespace: global-bank
+  labels: { app: transaction }
+spec:
+  selector: { app: transaction }
+  ports:
+    - { name: http, port: 8087, targetPort: http }
