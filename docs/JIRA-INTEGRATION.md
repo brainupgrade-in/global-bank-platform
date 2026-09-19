@@ -31,7 +31,7 @@ component, and the component **is** the routing key:
 | `customer` | `brainupgrade-in/global-bank-customer` |
 | `transaction` | `brainupgrade-in/global-bank-transaction` |
 | `rules` | `brainupgrade-in/global-bank-rules` |
-| `frontend` | `brainupgrade-in/global-bank-frontend` (branch `k8s`) |
+| `frontend` | `brainupgrade-in/global-bank-frontend` |
 | `platform` | `brainupgrade-in/global-bank-platform` (this repo) |
 
 An issue with no component has no home repository. Set one before marking it ready, or the

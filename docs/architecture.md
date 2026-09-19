@@ -15,14 +15,14 @@ shared parent POM — each service builds independently.
 | Customer | `global-bank-customer` | 8085 | `/customer` | 3.5.3 | 25 |
 | Transaction | `global-bank-transaction` | 8087 | `/transaction` | 3.5.3 | 25 |
 | Rules | `global-bank-rules` | 8090 | `/rules` | 3.5.3 | 25 |
-| Frontend | `global-bank-frontend` (branch `k8s`) | 4200 | `/` | Angular 9.1.13 | — |
+| Frontend | `global-bank-frontend` | 4200 | `/` | — (React 19 + Vite 7) | — |
 
 ## Call graph
 
 Services call each other over OpenFeign. Authentication is the only leaf.
 
 ```
-frontend ──▶ auth, customer, account, transaction, rules   (Angular dev proxy)
+frontend ──▶ auth, customer, account, transaction, rules   (Vite dev proxy / nginx)
 
 account ──▶ customer, auth, transaction
 customer ──▶ auth, account
@@ -48,13 +48,16 @@ feign.url-transaction-service=${TRANSACTION_SERVICE_URL:localhost:8087/transacti
 The defaults exist only so a local run works with no setup. **In the cluster the Deployment
 must supply Service DNS names**, or every service will try to reach its peers on localhost.
 
-The frontend still resolves the same map through `proxy.conf.local.json`.
+The frontend resolves the same map by path prefix: through the dev proxy in `vite.config.ts` on
+localhost, and through `nginx.conf` (Kubernetes Service names) in the cluster.
 
 ## Persistence — and the two consequences people miss
 
-Every Java service runs an **in-memory** H2 (`jdbc:h2:mem:<name>`) with
-`spring.jpa.hibernate.ddl-auto=update`, seeded from `data.sql` at startup. A MariaDB driver
-ships for a production profile that is not configured. Credentials are `root`/`root` in the
+Four of the five Java services — account, authentication, customer, transaction — run an
+**in-memory** H2 (`jdbc:h2:mem:<name>`), with the schema created by Hibernate at startup and
+seeded from `data.sql`. `rules` has no database: it reads balances from `account` over Feign.
+The four with a database also ship a MariaDB driver, for a production profile that is not
+configured. Credentials are `root`/`root` in the
 committed properties.
 
 The database lives inside the JVM process. Two things follow, and both bite:
@@ -92,8 +95,9 @@ Two things about this are non-obvious:
   unexcluded host is 301'd away and the demo silently dies. DNS and that exclusion are
   managed outside this repository.
 
-Scripts live in the platform repo: `scripts/local.sh` (no Docker, no cluster),
-`scripts/build-images.sh`, `scripts/deploy-k8s.sh`.
+Scripts live in the platform repo: `scripts/local.sh` (no Docker, no cluster; bash, so macOS or
+Linux, and it expects all seven repos cloned side by side), `scripts/build-images.sh`,
+`scripts/deploy-k8s.sh`.
 
 ## Known debt
 
@@ -154,5 +158,7 @@ offers; if something is load-bearing, say so instead of dropping it.
 
 - Never change a port or context path in one repo alone — update every caller listed in the
   call graph in the same change.
-- Java services build with `./mvnw clean package`; the frontend with `npm ci && npm run build`.
-- The frontend's default branch is `k8s`, not `main`. Target it explicitly.
+- Java services build with `mvn clean package` (not `./mvnw`, see Known debt); the frontend with
+  `npm ci && npm run build`.
+- Every repo's default branch is `main`. The frontend also keeps a `k8s` branch identical to
+  `main`; when `main` moves, fast-forward `k8s` to match.

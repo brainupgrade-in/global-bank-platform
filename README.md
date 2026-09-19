@@ -44,6 +44,17 @@ do not spend tokens rediscovering the fleet on every run.
 
 ### On localhost — no Docker, no Kubernetes
 
+Clone all seven repositories side by side in one folder. The script finds the services
+by looking next to this repository:
+
+```bash
+mkdir -p ~/global-bank && cd ~/global-bank
+for r in platform account authentication customer transaction rules frontend; do
+  git clone https://github.com/brainupgrade-in/global-bank-$r.git
+done
+cd global-bank-platform
+```
+
 ```bash
 ./scripts/local.sh start        # build if needed, start all six, wait for health
 ./scripts/local.sh status       # what is up, and on which port
@@ -61,8 +72,22 @@ Requirements: **JDK 25+**, Maven, Node 22+. The script finds a JDK 25 under `/us
 It uses `mvn`, not `./mvnw`: the repos ship the wrapper script but `.mvn/wrapper/` was never
 committed, so `./mvnw` cannot bootstrap in any of them.
 
-`start` is safe to re-run — a service already answering its health check is left alone. Logs
-and PIDs go to `.run/`, which is gitignored.
+`start` is safe to re-run — a service already answering its health check is left alone. It
+returns once everything is healthy, so it can be run by a coding agent or in CI. Logs and PIDs
+go to `.run/`, which is gitignored.
+
+**Check the backend, not the page.** The UI falls back to demo data when a service is down and
+still looks fine. A sign-in through the dev proxy proves the whole path:
+
+```bash
+curl -s -X POST localhost:4200/auth/login -H 'Content-Type: application/json' \
+  -d '{"userid":"john","password":"unigps"}'     # returns a JWT and "role":"CUSTOMER"
+```
+
+**On Windows** the script does not run (it is bash). Do by hand what it does: in each of the
+five service folders run `mvn -B clean package -DskipTests`, then start
+`java -jar target/<name>.jar`. Then in `global-bank-frontend` run
+`npm install` and `npm run dev`.
 
 ### On Kubernetes
 

@@ -1,7 +1,7 @@
 {
   "app": "Global Bank",
   "owner": "brainupgrade-in",
-  "default_branch_note": "All services are on main; global-bank-frontend's active branch is k8s.",
+  "default_branch_note": "All repos are on main. global-bank-frontend also keeps a k8s branch identical to main.",
   "services": [
     {
       "name": "global-bank-account",
@@ -21,7 +21,8 @@
         "global-bank-transaction"
       ],
       "test_sources": 0,
-      "actuator": true
+      "actuator": true,
+      "database": "h2-mem"
     },
     {
       "name": "global-bank-authentication",
@@ -37,7 +38,8 @@
       "build": "mvn clean package   # .mvn/wrapper was never committed, so ./mvnw does not work",
       "depends_on": [],
       "test_sources": 0,
-      "actuator": true
+      "actuator": true,
+      "database": "h2-mem"
     },
     {
       "name": "global-bank-customer",
@@ -56,7 +58,8 @@
         "global-bank-account"
       ],
       "test_sources": 0,
-      "actuator": true
+      "actuator": true,
+      "database": "h2-mem"
     },
     {
       "name": "global-bank-transaction",
@@ -75,7 +78,8 @@
         "global-bank-rules"
       ],
       "test_sources": 0,
-      "actuator": true
+      "actuator": true,
+      "database": "h2-mem"
     },
     {
       "name": "global-bank-rules",
@@ -94,18 +98,20 @@
         "global-bank-account"
       ],
       "test_sources": 0,
-      "actuator": true
+      "actuator": true,
+      "database": null
     },
     {
       "name": "global-bank-frontend",
       "repo": "brainupgrade-in/global-bank-frontend",
-      "branch": "k8s",
-      "kind": "angular",
-      "artifact": "global-bank-frontend@1.0.0",
+      "branch": "main",
+      "kind": "react-vite",
+      "artifact": "global-bank-frontend@2.0.0",
       "port": 4200,
       "context_path": "/",
-      "angular": "9.1.13",
-      "typescript": "3.8.3",
+      "react": "19",
+      "vite": "7",
+      "typescript": "5.8",
       "build": "npm ci && npm run build",
       "depends_on": [
         "global-bank-authentication",
@@ -114,16 +120,16 @@
         "global-bank-transaction",
         "global-bank-rules"
       ],
-      "test_sources": 1
+      "test_sources": 0
     }
   ],
   "known_debt": [
-    "Zero test sources in all five Java services; only one spec file in the frontend. The build workflow is the only automated signal.",
+    "Zero test sources in all six code repos (five Java services and the frontend). The build workflow is the only automated signal.",
     ".mvn/wrapper/ was never committed to any Java repo, so ./mvnw cannot bootstrap. Use mvn.",
-    "global-bank-frontend is still Angular 9.1.13 and has not been modernised.",
-    "The five Java services no longer have Dockerfiles or k8s manifests; only the frontend does.",
-    "Inter-service URLs are now env vars (CUSTOMER_SERVICE_URL etc.) defaulting to localhost; the Deployment must supply Service DNS names.",
-    "authentication's jwt.secret now comes from JWT_SECRET and must be provided by a Kubernetes Secret in any real deployment.",
+    "Four Java services keep their data in in-memory H2, so they cannot run more than one replica and a restart resets them to seed data. global-bank-rules has no database.",
+    "The five Java services have no Dockerfiles or k8s manifests. The shared k8s/Dockerfile.jar and all manifests live in global-bank-platform; the frontend has its own Dockerfile.",
+    "Inter-service URLs are env vars (CUSTOMER_SERVICE_URL etc.) defaulting to localhost; the Deployment must supply Service DNS names.",
+    "authentication's jwt.secret comes from JWT_SECRET and must be provided by a Kubernetes Secret in any real deployment.",
     "Lombok was removed fleet-wide: 1.18.38 is the newest release and does not support JDK 25. It can return once a supporting version ships."
   ]
 }
