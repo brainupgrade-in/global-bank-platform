@@ -9,7 +9,12 @@
 /tmp/gh-aw/
 .gh-aw/
 
-# Editor / OS
+# Editor / OS — keep shareable VS Code config, ignore the rest
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/mcp.json
 .DS_Store
 *.swp
 

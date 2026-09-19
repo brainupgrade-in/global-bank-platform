@@ -144,7 +144,7 @@ start_all() {
 
     jar="$(jar_for "$dir")"
     [[ -n "$jar" ]] || die "no jar for $name — run '$0 start --build'"
-    ( cd "$FLEET/$dir" && nohup "$JAVA_HOME/bin/java" -jar "$jar" > "$LOGS/$name.log" 2>&1 < /dev/null & echo $! > "$RUN/$name.pid" )
+    ( cd "$FLEET/$dir" && exec nohup "$JAVA_HOME/bin/java" -jar "$jar" > "$LOGS/$name.log" 2>&1 < /dev/null & echo $! > "$RUN/$name.pid" )
   done
 
   local failed=0
@@ -165,7 +165,7 @@ start_all() {
     if port_busy "$FRONTEND_PORT"; then
       warn "port $FRONTEND_PORT already in use — not starting a second dev server"
     else
-      ( cd "$FLEET/$FRONTEND_DIR" && nohup npm run dev > "$LOGS/frontend.log" 2>&1 < /dev/null & echo $! > "$RUN/frontend.pid" )
+      ( cd "$FLEET/$FRONTEND_DIR" && exec nohup npm run dev > "$LOGS/frontend.log" 2>&1 < /dev/null & echo $! > "$RUN/frontend.pid" )
       local t=0
       until curl -sf -o /dev/null --max-time 2 "http://localhost:$FRONTEND_PORT/" || [[ $t -ge 60 ]]; do sleep 2; t=$((t+2)); done
     fi
@@ -210,6 +210,7 @@ stop_all() {
   done
   shopt -u nullglob
   [[ $stopped -eq 0 ]] && say "  nothing was running that this script started"
+  return 0
 }
 
 status_all() {
